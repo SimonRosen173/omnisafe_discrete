@@ -22,6 +22,7 @@ from omnisafe.envs.discrete_env import DiscreteEnv
 from omnisafe.envs.mujoco_env import MujocoEnv
 from omnisafe.envs.safety_gymnasium_env import SafetyGymnasiumEnv
 from omnisafe.envs.safety_gymnasium_modelbased import SafetyGymnasiumModelBased
+from omnisafe.envs.morality_gym_env import MoralityGymOmniSafeEnv
 
 
 ENVIRONMENTS = {
