@@ -1,4 +1,5 @@
 # Copyright 2023 OmniSafe Team. All Rights Reserved.
+# Additional Modifications Copyright YEAR YOUR NAME/ORGANIZATION for morality evaluation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,15 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Implementation of the Policy Gradient algorithm."""
+"""Implementation of the Policy Gradient algorithm with optional periodic morality evaluation."""
 
 from __future__ import annotations
 
+import os # Added for path joining in morality eval
 import time
 from typing import Any
 
 import torch
 import torch.nn as nn
+import pandas as pd # Added for morality eval results saving
+import numpy as np  # Added for morality eval policy function
+
 from rich.progress import track
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.utils.data import DataLoader, TensorDataset
@@ -32,6 +37,19 @@ from omnisafe.common.buffer import VectorOnPolicyBuffer
 from omnisafe.common.logger import Logger
 from omnisafe.models.actor_critic.constraint_actor_critic import ConstraintActorCritic
 from omnisafe.utils import distributed
+
+# Optional imports for morality_gym evaluation
+_MORALITY_GYM_AVAILABLE = False
+try:
+    from experiments.baselines.common.setup import make_experiment
+    from experiments.baselines.common.evaluate import eval_multi_variants
+    from morality_gym.setup.setup import make as env_mt_make
+    # from morality_gym.utils.common import join_paths # Using os.path.join directly
+    _MORALITY_GYM_AVAILABLE = True
+except ImportError:
+    # This is not a critical error if morality evaluation is not used.
+    # A warning will be printed in _init if morality eval is configured but imports failed.
+    pass 
 
 
 @registry.register
@@ -222,6 +240,42 @@ class PolicyGradient(BaseAlgo):
         self._logger.register_key('Time/Epoch')
         self._logger.register_key('Time/FPS')
 
+        # --- Initialization for optional periodic morality evaluation ---
+        # Look for config nested under algo_cfgs now
+        algo_cfgs_obj = getattr(self._cfgs, 'algo_cfgs', None)
+        self._morality_eval_cfgs = getattr(algo_cfgs_obj, 'morality_eval_cfgs', {}) if algo_cfgs_obj else {}
+        
+        self._morality_eval_freq: int = self._morality_eval_cfgs.get('eval_freq_epochs', 0)
+        self._morality_exp_name: str | None = self._morality_eval_cfgs.get('experiment_name', None)
+        self._intermediate_morality_results: list[dict] = []
+
+        if self._morality_eval_freq > 0:
+            if not _MORALITY_GYM_AVAILABLE:
+                self._logger.log("ERROR: Morality Gym components not available, but morality evaluation was configured. Disabling periodic evaluation.")
+                self._morality_eval_freq = 0 # Disable
+            elif not self._morality_exp_name:
+                self._logger.log("ERROR: morality_eval_cfgs.experiment_name not provided, but morality evaluation frequency > 0. Disabling periodic evaluation.")
+                self._morality_eval_freq = 0 # Disable
+            else:
+                if hasattr(self._cfgs, 'env_id') and isinstance(self._cfgs.env_id, str):
+                    try:
+                        # Assumes self._cfgs.env_id is like "ExperimentNameUsedForTraining::TreeId::RepeatIdx"
+                        # Note: The ExperimentNameUsedForTraining might be different from self._morality_exp_name
+                        # if the training env_id points to one config and eval uses another.
+                        # For simplicity, we parse from self._cfgs.env_id which is the one used for training.
+                        _, self._eval_morality_tree_id, self._eval_repeat_idx_str = self._cfgs.env_id.split('::')
+                        self._eval_repeat_idx = int(self._eval_repeat_idx_str)
+                        self._logger.log(f"Periodic morality evaluation enabled: Freq={self._morality_eval_freq} epochs, ExpName={self._morality_exp_name}, Evaluating on variant part of {self._cfgs.env_id}")
+                    except ValueError:
+                        self._logger.log(f"ERROR: Invalid env_id format ('{self._cfgs.env_id}') for parsing morality eval details. Expected 'ExpName::TreeId::RepeatIdx'. Disabling periodic evaluation.")
+                        self._morality_eval_freq = 0 # Disable evaluation
+                else:
+                    self._logger.log(f"ERROR: env_id not found or not a string in self._cfgs. Cannot parse for morality eval details. Disabling periodic evaluation.")
+                    self._morality_eval_freq = 0 # Disable evaluation
+            
+            if self._morality_eval_freq > 0: # If still enabled after checks
+                 self._logger.register_key('Time/MoralityEval')
+
     def learn(self) -> tuple[float, float, float]:
         """This is main function for algorithm update.
 
@@ -276,13 +330,36 @@ class PolicyGradient(BaseAlgo):
 
             self._logger.dump_tabular()
 
+            # --- Optional: Periodic Morality Evaluation ---
+            if self._morality_eval_freq > 0: # Check if enabled first
+                perform_eval_this_epoch = (epoch + 1) % self._morality_eval_freq == 0
+                is_last_epoch = epoch == self._cfgs.train_cfgs.epochs - 1
+                if perform_eval_this_epoch or is_last_epoch:
+                    self._logger.log(f"INFO: Performing morality evaluation at epoch {epoch+1}")
+                    eval_start_time = time.time()
+                    self._perform_morality_evaluation(current_epoch=epoch)
+                    self._logger.store({'Time/MoralityEval': time.time() - eval_start_time})
+                    # self._logger.dump_tabular() # Optionally dump again if morality eval uses self._logger.store for its metrics
+
             # save model to disk
-            if (epoch + 1) % self._cfgs.logger_cfgs.save_model_freq == 0:
+            if (epoch + 1) % self._cfgs.logger_cfgs.save_model_freq == 0 or \
+               (epoch == self._cfgs.train_cfgs.epochs - 1): # Ensure last epoch model is saved
                 self._logger.torch_save()
 
         ep_ret = self._logger.get_stats('Metrics/EpRet')[0]
         ep_cost = self._logger.get_stats('Metrics/EpCost')[0]
         ep_len = self._logger.get_stats('Metrics/EpLen')[0]
+        
+        # --- Save intermediate morality results if any ---
+        if self._intermediate_morality_results:
+            try:
+                results_df = pd.DataFrame(self._intermediate_morality_results)
+                intermediate_eval_path = os.path.join(self._logger.log_dir, 'intermediate_morality_evals.csv')
+                results_df.to_csv(intermediate_eval_path, index=False)
+                self._logger.log(f"INFO: Intermediate morality evaluation results saved to {intermediate_eval_path}")
+            except Exception as e:
+                self._logger.log(f"ERROR: Could not save intermediate morality evaluation results: {e}")
+
         self._logger.close()
 
         return ep_ret, ep_cost, ep_len
@@ -568,3 +645,110 @@ class PolicyGradient(BaseAlgo):
             },
         )
         return loss
+
+    # +++ Methods for Morality Evaluation (added) +++
+    def _perform_morality_evaluation(self, current_epoch: int) -> None:
+        """
+        Performs morality evaluation using eval_multi_variants and logs the results.
+        This method is called periodically during training if configured.
+        """
+        if not _MORALITY_GYM_AVAILABLE: # Should have been caught in _init_log, but double check
+            self._logger.log("CRITICAL_ERROR: _perform_morality_evaluation called but Morality Gym components not available.")
+            return
+        
+        self._logger.log(f"--- Starting Morality Evaluation for Epoch {current_epoch + 1} ---")
+        
+        # Ensure necessary attributes were set in _init_log
+        if not (self._morality_exp_name and hasattr(self, '_eval_morality_tree_id') and hasattr(self, '_eval_repeat_idx')):
+            self._logger.log("WARNING: Morality evaluation skipped due to missing configuration (exp_name, tree_id, or repeat_idx for eval variant).")
+            return
+
+        eval_env = None # For finally block
+        try:
+            # Fix the unpacking: make_experiment returns 3 values
+            all_variant_make_configs, final_eval_args, _ = make_experiment(self._morality_exp_name) # type: ignore
+        except ValueError as e:
+            self._logger.log(f"ERROR: Could not unpack results from make_experiment('{self._morality_exp_name}'). {e}")
+            self._logger.log("Ensure make_experiment returns exactly three items or adjust unpacking.")
+            return
+        except Exception as e:
+            self._logger.log(f"ERROR: Failed to make_experiment('{self._morality_exp_name}') for morality eval: {e}")
+            return
+
+        variant_found = False
+        eval_env_kwargs = None
+        eval_morality_tree_id_for_make = None 
+
+        # The specific variant key to look for in the configs
+        current_variant_key = (self._eval_morality_tree_id, self._eval_repeat_idx)
+
+        if current_variant_key not in all_variant_make_configs:
+            self._logger.log(f"ERROR: Variant key {current_variant_key} (derived from training env_id {self._cfgs.env_id}) not found in configurations from make_experiment('{self._morality_exp_name}'). Cannot perform periodic evaluation.")
+            # Optionally log available keys for debugging:
+            # self._logger.log(f"Available keys: {list(all_variant_make_configs.keys())}")
+            return
+
+        # Get the specific configuration for the variant being evaluated
+        specific_variant_config = all_variant_make_configs[current_variant_key]
+        eval_base_env_id = specific_variant_config['env_id'] # Base env name like "MoralityGym/Trolley-Switch3-all-v0"
+        eval_env_kwargs = specific_variant_config['env_kwargs'] # Dict containing overrides
+        eval_morality_tree_id_for_make = specific_variant_config['morality_tree_id'] # ID string
+
+        try:
+            # Call env_mt_make correctly
+            eval_env, eval_mt = env_mt_make(
+                env_id=eval_base_env_id,
+                morality_tree_id=eval_morality_tree_id_for_make,
+                env_kwargs=eval_env_kwargs
+            ) # type: ignore
+        except Exception as e:
+            self._logger.log(f"ERROR: Failed to create base env/mt for morality eval: {e}")
+            return 
+            
+        self._logger.log(f"Morality Tree for evaluation: {eval_morality_tree_id_for_make if eval_mt else 'None'}")
+
+        def omnisafe_policy_fn(obs_original):
+            if isinstance(obs_original, dict):
+                if "observation" in obs_original and isinstance(obs_original["observation"], np.ndarray):
+                    obs_flat = obs_original["observation"].ravel()
+                else:
+                    # Basic fallback for dict observations if specific key is missing
+                    obs_flat = np.concatenate([v.flatten() if isinstance(v, np.ndarray) else np.array([v]).flatten() for v in obs_original.values()]).astype(np.float32)
+            else:
+                obs_flat = obs_original.astype(np.float32)
+
+            obs_tensor = torch.as_tensor(obs_flat, dtype=torch.float32, device=self._device).unsqueeze(0)
+            action_tensor = self._actor_critic.actor.predict(obs_tensor, deterministic=True)
+            action_item = action_tensor.cpu().numpy().item()
+            return action_item
+
+        # Use the eval args obtained from make_experiment (final_eval_args)
+        eval_multi_kwargs = final_eval_args.copy() # type: ignore
+        eval_multi_kwargs["num_repeats_per_variant"] = 1 
+        eval_multi_kwargs["variants_to_eval_filter"] = [(self._eval_morality_tree_id, self._eval_repeat_idx)]
+
+        try:
+            morality_metrics, morality_functions, avg_returns, _ = eval_multi_variants(
+                omnisafe_policy_fn, eval_env, eval_mt, is_prog_bar=False, **eval_multi_kwargs # type: ignore
+            )
+            # Log/Store results
+            self._logger.log(f"Epoch {current_epoch + 1} Morality Eval - Avg Return: {avg_returns}, Morality Metric: {morality_metrics}")
+            
+            result_summary = {
+                "epoch": current_epoch + 1,
+                "avg_return_morality_eval": avg_returns,
+                "morality_metric_eval": morality_metrics,
+                **morality_functions 
+            }
+            self._intermediate_morality_results.append(result_summary)
+
+        except Exception as e:
+            self._logger.log(f"ERROR: Exception during eval_multi_variants: {e}")
+            # import traceback # For deeper debugging if needed
+            # self._logger.log(traceback.format_exc())
+        finally:
+            if eval_env is not None:
+                eval_env.close() # type: ignore
+            self._logger.log(f"--- Finished Morality Evaluation for Epoch {current_epoch + 1} ---")
+
+    # --- End of Morality Evaluation Methods ---

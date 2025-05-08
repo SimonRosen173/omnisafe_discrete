@@ -37,7 +37,6 @@ from omnisafe.algorithms.on_policy.saute import PPOSaute, TRPOSaute
 from omnisafe.algorithms.on_policy.second_order import CPO, PCPO
 from omnisafe.algorithms.on_policy.simmer import PPOSimmerPID, TRPOSimmerPID
 
-
 __all__ = [
     *base.__all__,
     *early_terminated.__all__,
