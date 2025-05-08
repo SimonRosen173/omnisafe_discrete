@@ -331,6 +331,9 @@ class PolicyGradient(BaseAlgo):
             self._logger.dump_tabular()
 
             # --- Optional: Periodic Morality Evaluation ---
+           # print("---")
+           # print(self._morality_eval_freq)
+           # exit()
             if self._morality_eval_freq > 0: # Check if enabled first
                 perform_eval_this_epoch = (epoch + 1) % self._morality_eval_freq == 0
                 is_last_epoch = epoch == self._cfgs.train_cfgs.epochs - 1

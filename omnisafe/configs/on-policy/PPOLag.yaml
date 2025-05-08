@@ -78,7 +78,7 @@ defaults:
     use_cost: True
     # Add placeholder for morality evaluation config
     morality_eval_cfgs:
-      eval_freq_epochs: 0  # Default: disabled
+      eval_freq_epochs: 1  # Default: disabled
       experiment_name: null # Default: None
   # logger configurations
   logger_cfgs:

@@ -84,6 +84,10 @@ defaults:
     cost_limit: 25
     # The sub-sampling rate of the observation
     fvp_sample_freq: 1
+    # Add placeholder for morality evaluation config
+    morality_eval_cfgs:
+      eval_freq_epochs: 1
+      experiment_name: null
   # logger configurations
   logger_cfgs:
     # use wandb for logging
