@@ -331,9 +331,6 @@ class PolicyGradient(BaseAlgo):
             self._logger.dump_tabular()
 
             # --- Optional: Periodic Morality Evaluation ---
-           # print("---")
-           # print(self._morality_eval_freq)
-           # exit()
             if self._morality_eval_freq > 0: # Check if enabled first
                 perform_eval_this_epoch = (epoch + 1) % self._morality_eval_freq == 0
                 is_last_epoch = epoch == self._cfgs.train_cfgs.epochs - 1
@@ -344,6 +341,15 @@ class PolicyGradient(BaseAlgo):
                     self._logger.store({'Time/MoralityEval': time.time() - eval_start_time})
                     # self._logger.dump_tabular() # Optionally dump again if morality eval uses self._logger.store for its metrics
 
+                            # --- Save intermediate morality results if any ---
+                    if self._intermediate_morality_results:
+                        try:
+                            results_df = pd.DataFrame(self._intermediate_morality_results)
+                            intermediate_eval_path = os.path.join(self._logger.log_dir, 'intermediate_morality_evals.csv')
+                            results_df.to_csv(intermediate_eval_path, index=False)
+                            self._logger.log(f"INFO: Intermediate morality evaluation results saved to {intermediate_eval_path}")
+                        except Exception as e:
+                            self._logger.log(f"ERROR: Could not save intermediate morality evaluation results: {e}")
             # save model to disk
             if (epoch + 1) % self._cfgs.logger_cfgs.save_model_freq == 0 or \
                (epoch == self._cfgs.train_cfgs.epochs - 1): # Ensure last epoch model is saved
@@ -352,16 +358,6 @@ class PolicyGradient(BaseAlgo):
         ep_ret = self._logger.get_stats('Metrics/EpRet')[0]
         ep_cost = self._logger.get_stats('Metrics/EpCost')[0]
         ep_len = self._logger.get_stats('Metrics/EpLen')[0]
-        
-        # --- Save intermediate morality results if any ---
-        if self._intermediate_morality_results:
-            try:
-                results_df = pd.DataFrame(self._intermediate_morality_results)
-                intermediate_eval_path = os.path.join(self._logger.log_dir, 'intermediate_morality_evals.csv')
-                results_df.to_csv(intermediate_eval_path, index=False)
-                self._logger.log(f"INFO: Intermediate morality evaluation results saved to {intermediate_eval_path}")
-            except Exception as e:
-                self._logger.log(f"ERROR: Could not save intermediate morality evaluation results: {e}")
 
         self._logger.close()
 
@@ -709,7 +705,7 @@ class PolicyGradient(BaseAlgo):
                 obs_flat = obs_original.astype(np.float32)
 
             obs_tensor = torch.as_tensor(obs_flat, dtype=torch.float32, device=self._device).unsqueeze(0)
-            action_tensor = self._actor_critic.actor.predict(obs_tensor, deterministic=True)
+            action_tensor = self._actor_critic.actor.predict(obs_tensor,deterministic=False) # NOT SURE WHAT IS THE NORM #, deterministic=True)
             action_item = action_tensor.cpu().numpy().item()
             return action_item
 
