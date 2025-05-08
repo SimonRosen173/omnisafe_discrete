@@ -41,9 +41,11 @@ from omnisafe.utils import distributed
 # Optional imports for morality_gym evaluation
 _MORALITY_GYM_AVAILABLE = False
 try:
+    from experiments.cost_function import Cost
     from experiments.baselines.common.setup import make_experiment
     from experiments.baselines.common.evaluate import eval_multi_variants
     from morality_gym.setup.setup import make as env_mt_make
+    from morality_gym.wrappers.evaluation_wrapper import EvaluationEnvWrapper
     # from morality_gym.utils.common import join_paths # Using os.path.join directly
     _MORALITY_GYM_AVAILABLE = True
 except ImportError:
@@ -722,9 +724,15 @@ class PolicyGradient(BaseAlgo):
         try:
             # Call evaluate_morality_metric directly on the specific eval_mt and eval_env
             # Pass reset_kwargs={}, assuming eval_env is already configured correctly.
+
+            eval_cost_obj = Cost(eval_mt)
+            wrapped_eval_env = EvaluationEnvWrapper(eval_env, eval_cost_obj)
+            wrapped_eval_env.all_episode_costs = []
+            wrapped_eval_env.reset()
+
             morality_metric, morality_functions, avg_return, _ = eval_mt.evaluate_morality_metric(
                 policy=omnisafe_policy_fn, 
-                env=eval_env, 
+                env=wrapped_eval_env,#eval_env, 
                 max_episode_steps=max_steps, 
                 n_repeats=n_repeats_for_avg, 
                 handle_trunc=handle_trunc, 
@@ -732,13 +740,17 @@ class PolicyGradient(BaseAlgo):
                 is_prog_bar=False # Typically disable progress bar for periodic eval
             ) # type: ignore
             
+            all_costs = wrapped_eval_env.all_episode_costs
+            avg_cost = np.mean(all_costs)
+
             # Log/Store results
-            self._logger.log(f"Epoch {current_epoch + 1} Morality Eval - Avg Return: {avg_return}, Morality Metric: {morality_metric}")
+            self._logger.log(f"Epoch {current_epoch + 1} Morality Eval - Avg Return: {avg_return}, Morality Metric: {morality_metric}, Avg Cost: {avg_cost}")
             
             result_summary = {
                 "epoch": current_epoch + 1,
                 "avg_return_morality_eval": avg_return,
                 "morality_metric_eval": morality_metric,
+                "avg_cost_morality_eval": avg_cost,
                 **morality_functions 
             }
             self._intermediate_morality_results.append(result_summary)
