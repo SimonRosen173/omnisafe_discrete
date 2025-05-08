@@ -665,37 +665,24 @@ class PolicyGradient(BaseAlgo):
 
         eval_env = None # For finally block
         try:
-            # Fix the unpacking: make_experiment returns 3 values
+            # Still need make_experiment to get config details
             all_variant_make_configs, final_eval_args, _ = make_experiment(self._morality_exp_name) # type: ignore
-        except ValueError as e:
-            self._logger.log(f"ERROR: Could not unpack results from make_experiment('{self._morality_exp_name}'). {e}")
-            self._logger.log("Ensure make_experiment returns exactly three items or adjust unpacking.")
-            return
         except Exception as e:
-            self._logger.log(f"ERROR: Failed to make_experiment('{self._morality_exp_name}') for morality eval: {e}")
+            self._logger.log(f"ERROR: Failed during make_experiment('{self._morality_exp_name}') for morality eval: {e}")
             return
 
-        variant_found = False
-        eval_env_kwargs = None
-        eval_morality_tree_id_for_make = None 
-
-        # The specific variant key to look for in the configs
+        # Config for the specific variant the agent is training on
         current_variant_key = (self._eval_morality_tree_id, self._eval_repeat_idx)
-
         if current_variant_key not in all_variant_make_configs:
-            self._logger.log(f"ERROR: Variant key {current_variant_key} (derived from training env_id {self._cfgs.env_id}) not found in configurations from make_experiment('{self._morality_exp_name}'). Cannot perform periodic evaluation.")
-            # Optionally log available keys for debugging:
-            # self._logger.log(f"Available keys: {list(all_variant_make_configs.keys())}")
+            self._logger.log(f"ERROR: Variant key {current_variant_key} not found in make_configs from make_experiment('{self._morality_exp_name}'). Cannot perform periodic evaluation.")
             return
-
-        # Get the specific configuration for the variant being evaluated
         specific_variant_config = all_variant_make_configs[current_variant_key]
-        eval_base_env_id = specific_variant_config['env_id'] # Base env name like "MoralityGym/Trolley-Switch3-all-v0"
-        eval_env_kwargs = specific_variant_config['env_kwargs'] # Dict containing overrides
-        eval_morality_tree_id_for_make = specific_variant_config['morality_tree_id'] # ID string
+        eval_base_env_id = specific_variant_config['env_id'] 
+        eval_env_kwargs = specific_variant_config['env_kwargs'] 
+        eval_morality_tree_id_for_make = specific_variant_config['morality_tree_id']
 
         try:
-            # Call env_mt_make correctly
+            # Create the specific base environment and morality tree
             eval_env, eval_mt = env_mt_make(
                 env_id=eval_base_env_id,
                 morality_tree_id=eval_morality_tree_id_for_make,
@@ -707,6 +694,7 @@ class PolicyGradient(BaseAlgo):
             
         self._logger.log(f"Morality Tree for evaluation: {eval_morality_tree_id_for_make if eval_mt else 'None'}")
 
+        # Define policy function using current actor
         def omnisafe_policy_fn(obs_original):
             if isinstance(obs_original, dict):
                 if "observation" in obs_original and isinstance(obs_original["observation"], np.ndarray):
@@ -722,29 +710,43 @@ class PolicyGradient(BaseAlgo):
             action_item = action_tensor.cpu().numpy().item()
             return action_item
 
-        # Use the eval args obtained from make_experiment (final_eval_args)
-        eval_multi_kwargs = final_eval_args.copy() # type: ignore
-        eval_multi_kwargs["num_repeats_per_variant"] = 1 
-        eval_multi_kwargs["variants_to_eval_filter"] = [(self._eval_morality_tree_id, self._eval_repeat_idx)]
+        # Extract evaluation parameters from the loaded experiment config's final eval section
+        try:
+            max_steps = final_eval_args['max_episode_steps']
+            n_repeats_for_avg = final_eval_args['n_mt_repeats'] # Number of episodes to average over
+            handle_trunc = final_eval_args['handle_trunc']
+        except KeyError as e:
+             self._logger.log(f"ERROR: Missing expected key {e} in final_eval_args from make_experiment. Cannot run evaluate_morality_metric.")
+             if eval_env is not None: eval_env.close()
+             return
 
         try:
-            morality_metrics, morality_functions, avg_returns, _ = eval_multi_variants(
-                omnisafe_policy_fn, eval_env, eval_mt, is_prog_bar=False, **eval_multi_kwargs # type: ignore
-            )
+            # Call evaluate_morality_metric directly on the specific eval_mt and eval_env
+            # Pass reset_kwargs={}, assuming eval_env is already configured correctly.
+            morality_metric, morality_functions, avg_return, _ = eval_mt.evaluate_morality_metric(
+                policy=omnisafe_policy_fn, 
+                env=eval_env, 
+                max_episode_steps=max_steps, 
+                n_repeats=n_repeats_for_avg, 
+                handle_trunc=handle_trunc, 
+                reset_kwargs={}, # Use env's configured state on reset (pass empty dict)
+                is_prog_bar=False # Typically disable progress bar for periodic eval
+            ) # type: ignore
+            
             # Log/Store results
-            self._logger.log(f"Epoch {current_epoch + 1} Morality Eval - Avg Return: {avg_returns}, Morality Metric: {morality_metrics}")
+            self._logger.log(f"Epoch {current_epoch + 1} Morality Eval - Avg Return: {avg_return}, Morality Metric: {morality_metric}")
             
             result_summary = {
                 "epoch": current_epoch + 1,
-                "avg_return_morality_eval": avg_returns,
-                "morality_metric_eval": morality_metrics,
+                "avg_return_morality_eval": avg_return,
+                "morality_metric_eval": morality_metric,
                 **morality_functions 
             }
             self._intermediate_morality_results.append(result_summary)
 
         except Exception as e:
-            self._logger.log(f"ERROR: Exception during eval_multi_variants: {e}")
-            # import traceback # For deeper debugging if needed
+            self._logger.log(f"ERROR: Exception during evaluate_morality_metric: {e}")
+            # import traceback
             # self._logger.log(traceback.format_exc())
         finally:
             if eval_env is not None:
