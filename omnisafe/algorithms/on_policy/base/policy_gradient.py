@@ -46,6 +46,7 @@ try:
     from experiments.baselines.common.evaluate import eval_multi_variants
     from morality_gym.setup.setup import make as env_mt_make
     from morality_gym.wrappers.evaluation_wrapper import EvaluationEnvWrapper
+    from experiments.baselines.common.evaluate import eval_multi_variants
     # from morality_gym.utils.common import join_paths # Using os.path.join directly
     _MORALITY_GYM_AVAILABLE = True
 except ImportError:
@@ -667,7 +668,7 @@ class PolicyGradient(BaseAlgo):
         eval_env = None # For finally block
         try:
             # Still need make_experiment to get config details
-            all_variant_make_configs, final_eval_args, _ = make_experiment(self._morality_exp_name) # type: ignore
+            all_variant_make_configs, final_eval_args, learn_eval_multi_kwargs = make_experiment(self._morality_exp_name) # type: ignore
         except Exception as e:
             self._logger.log(f"ERROR: Failed during make_experiment('{self._morality_exp_name}') for morality eval: {e}")
             return
@@ -707,7 +708,7 @@ class PolicyGradient(BaseAlgo):
                 obs_flat = obs_original.astype(np.float32)
 
             obs_tensor = torch.as_tensor(obs_flat, dtype=torch.float32, device=self._device).unsqueeze(0)
-            action_tensor = self._actor_critic.actor.predict(obs_tensor,deterministic=False) # NOT SURE WHAT IS THE NORM #, deterministic=True)
+            action_tensor = self._actor_critic.actor.predict(obs_tensor,deterministic=True)
             action_item = action_tensor.cpu().numpy().item()
             return action_item
 
@@ -730,28 +731,26 @@ class PolicyGradient(BaseAlgo):
             wrapped_eval_env.all_episode_costs = []
             wrapped_eval_env.reset()
 
-            morality_metric, morality_functions, avg_return, _ = eval_mt.evaluate_morality_metric(
-                policy=omnisafe_policy_fn, 
-                env=wrapped_eval_env,#eval_env, 
-                max_episode_steps=max_steps, 
-                n_repeats=n_repeats_for_avg, 
-                handle_trunc=handle_trunc, 
-                reset_kwargs={}, # Use env's configured state on reset (pass empty dict)
-                is_prog_bar=False # Typically disable progress bar for periodic eval
+            morality_metric_learn, morality_functions_learn, avg_returns_learn, info_learn = eval_multi_variants(
+                omnisafe_policy_fn, 
+                wrapped_eval_env,#eval_env,
+                eval_mt,
+                is_prog_bar=True,
+                **learn_eval_multi_kwargs,
             ) # type: ignore
             
             all_costs = wrapped_eval_env.all_episode_costs
-            avg_cost = np.mean(all_costs)
+            avg_cost = np.mean(all_costs) if all_costs else 0.0
 
             # Log/Store results
-            self._logger.log(f"Epoch {current_epoch + 1} Morality Eval - Avg Return: {avg_return}, Morality Metric: {morality_metric}, Avg Cost: {avg_cost}")
+            self._logger.log(f"Epoch {current_epoch + 1} Morality Eval - Avg Return: {avg_returns_learn}, Morality Metric: {morality_metric_learn}, Avg Cost: {avg_cost}")
             
             result_summary = {
                 "epoch": current_epoch + 1,
-                "avg_return_morality_eval": avg_return,
-                "morality_metric_eval": morality_metric,
+                "avg_return_morality_eval": avg_returns_learn,
+                "morality_metric_eval": morality_metric_learn,
                 "avg_cost_morality_eval": avg_cost,
-                **morality_functions 
+                **morality_functions_learn 
             }
             self._intermediate_morality_results.append(result_summary)
 
