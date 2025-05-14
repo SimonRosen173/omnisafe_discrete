@@ -668,7 +668,7 @@ class PolicyGradient(BaseAlgo):
         eval_env = None # For finally block
         try:
             # Still need make_experiment to get config details
-            all_variant_make_configs, final_eval_args, learn_eval_multi_kwargs = make_experiment(self._morality_exp_name) # type: ignore
+            all_variant_make_configs, final_eval_args, learn_eval_multi_kwargs, seeds = make_experiment(self._morality_exp_name) # type: ignore
         except Exception as e:
             self._logger.log(f"ERROR: Failed during make_experiment('{self._morality_exp_name}') for morality eval: {e}")
             return
@@ -731,11 +731,12 @@ class PolicyGradient(BaseAlgo):
             wrapped_eval_env.all_episode_costs = []
             wrapped_eval_env.reset()
 
+            agr_info_keys = ["cost"]
             morality_metric_learn, morality_functions_learn, avg_returns_learn, info_learn = eval_multi_variants(
-                omnisafe_policy_fn, 
-                wrapped_eval_env,#eval_env,
-                eval_mt,
-                is_prog_bar=True,
+               policy=omnisafe_policy_fn, 
+                env=wrapped_eval_env,#eval_env,
+                morality_tree=eval_mt,
+                agr_info_keys=agr_info_keys,
                 **learn_eval_multi_kwargs,
             ) # type: ignore
             
@@ -756,8 +757,9 @@ class PolicyGradient(BaseAlgo):
 
         except Exception as e:
             self._logger.log(f"ERROR: Exception during evaluate_morality_metric: {e}")
-            # import traceback
-            # self._logger.log(traceback.format_exc())
+            import traceback
+            self._logger.log(traceback.format_exc())
+            #exit()
         finally:
             if eval_env is not None:
                 eval_env.close() # type: ignore

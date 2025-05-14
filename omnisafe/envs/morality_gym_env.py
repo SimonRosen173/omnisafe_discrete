@@ -68,6 +68,9 @@ class MoralityGymOmniSafeEnv(CMDP):
         "Switch7-v0::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
         "Switch7-v0::Trolley-Common-DualProcess-Simple-v0::0",
         "Switch7-v0::Trolley-Common-DualProcess-Complex-v0::0",
+        "PushOrSwitch-v1::Trolley-Common-DualProcess-Complex-v0::0",
+        "PushOrSwitch-v1::Trolley-Common-Utilitarian-OrderedUtilityHarm-v0::0",
+        "PushOrSwitch-v1::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
         # Add other specific variants for other experiments you intend to run with OmniSafe
         # For example, if you have a Trolley-SwitchStandard-0-v0.json:
         # "Trolley-SwitchStandard-0-v0::SomeTreeForTrolleySwitch::0",
@@ -100,7 +103,7 @@ class MoralityGymOmniSafeEnv(CMDP):
                 'experiment_name::morality_tree_id::repeat_idx'. Error: {e}"
             )
 
-        all_variants_make_kwargs, _, _ = make_experiment(exp_name)
+        all_variants_make_kwargs, _, _ , _ = make_experiment(exp_name)
 
         variant_key = (tree_id, repeat_idx)
         if variant_key not in all_variants_make_kwargs:
