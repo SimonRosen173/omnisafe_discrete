@@ -109,6 +109,8 @@ class MoralityGymOmniSafeEnv(CMDP):
 
         all_variants_make_kwargs, _, _ , _ = make_experiment(exp_name)
 
+        #print(f"all_variants_make_kwargs: {all_variants_make_kwargs}")
+        #exit()
         variant_key = (tree_id, repeat_idx)
         if variant_key not in all_variants_make_kwargs:
             raise ValueError(

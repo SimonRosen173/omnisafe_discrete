@@ -726,7 +726,8 @@ class PolicyGradient(BaseAlgo):
             # Call evaluate_morality_metric directly on the specific eval_mt and eval_env
             # Pass reset_kwargs={}, assuming eval_env is already configured correctly.
 
-            eval_cost_obj = Cost(eval_mt)
+            #TODO SET COST NORMLAISTION THROUGH ENV CONFIGS.
+            eval_cost_obj = Cost(eval_mt,normalise_cost=True)
             wrapped_eval_env = EvaluationEnvWrapper(eval_env, eval_cost_obj)
             wrapped_eval_env.all_episode_costs = []
             wrapped_eval_env.reset()
