@@ -86,8 +86,8 @@ class MoralityGymOmniSafeEnv(CMDP):
         "Switch7-v1::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
         "Switch2Character-v1::Trolley-Common-Utilitarian-OrderedUtilityHarm-v0::0",
         "Switch2Character-v1::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
-        "Switch2Trolley2Lever-all-v1::Trolley-Common-Utilitarian-OrderedUtilityHarm-v0::0",
-        "Switch2Trolley2Lever-all-v1::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
+        "Switch2Trolley2Lever-v1::Trolley-Common-Utilitarian-OrderedUtilityHarm-v0::0",
+        "Switch2Trolley2Lever-v1::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
         "Switch2TrolleyDistractor-v1::Trolley-Common-Utilitarian-OrderedUtilityHarm-v0::0",
         "Switch2TrolleyDistractor-v1::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
         "Switch2TrolleySelfSacrifice-v1::Trolley-Common-Utilitarian-OrderedUtilityHarm-v0::0",
@@ -95,7 +95,6 @@ class MoralityGymOmniSafeEnv(CMDP):
         "Switch3Trolley3Lever-v1::Trolley-Common-Utilitarian-OrderedUtilityHarm-v0::0",
         "Switch3Trolley3Lever-v1::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
         "Switch3Trolley-v1::Trolley-Common-Utilitarian-OrderedUtilityHarm-v0::0",
-        "Switch3Trolley-v1::Trolley-Common-Utilitarian-OrderedOutcomeHarm1-v0::0",
         # Add other specific variants for other experiments you intend to run with OmniSafe
         # For example, if you have a Trolley-SwitchStandard-0-v0.json:
         # "Trolley-SwitchStandard-0-v0::SomeTreeForTrolleySwitch::0",
