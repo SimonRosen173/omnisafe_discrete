@@ -62,8 +62,8 @@ class OnlineAdapter:
         self._cfgs: Config = cfgs
         self._device: torch.device = get_device(cfgs.train_cfgs.device)
         self._env_id: str = env_id
-        self._env: CMDP = make(env_id, num_envs=num_envs, device=self._device)
-        self._eval_env: CMDP = make(env_id, num_envs=1, device=self._device)
+        self._env: CMDP = make(env_id, num_envs=num_envs, device=self._device, seed=seed)
+        self._eval_env: CMDP = make(env_id, num_envs=1, device=self._device, seed=seed)
 
         self._wrapper(
             obs_normalize=cfgs.algo_cfgs.obs_normalize,

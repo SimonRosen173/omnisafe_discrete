@@ -112,6 +112,7 @@ class MoralityGymOmniSafeEnv(CMDP):
         env_id: str, # Expected format: "experiment_name::morality_tree_id::repeat_idx"
         num_envs: int = 1,
         device: str = 'cpu',
+        seed: int = None,  # Add explicit seed parameter
         **kwargs: Any, # For additional OmniSafe configs like cost_limit
     ) -> None:
         self._num_envs = num_envs
@@ -128,7 +129,7 @@ class MoralityGymOmniSafeEnv(CMDP):
             )
 
         all_variants_make_kwargs, _, _ , _ = make_experiment(exp_name)
-
+        
         #print(f"all_variants_make_kwargs: {all_variants_make_kwargs}")
         #exit()
         variant_key = (tree_id, repeat_idx)
@@ -150,6 +151,16 @@ class MoralityGymOmniSafeEnv(CMDP):
                 must contain 'env_id' and 'morality_tree_id'. Got: {selected_curr_kwargs}"
             )
 
+        # Use the explicit seed parameter if provided, otherwise check kwargs
+        if seed is not None:
+            # Update the scenario_overrides with the provided seed
+            if 'scenario_overrides' not in actual_mg_env_kwargs:
+                actual_mg_env_kwargs['scenario_overrides'] = {}
+            actual_mg_env_kwargs['scenario_overrides']['seed'] = seed
+            print(f"Using explicitly passed seed: {seed}")
+
+        
+        # Create the environment wrapper
         self._env: gymnasium.Env = OmniSafeMoralityGymWrapper(
             env_id=actual_mg_env_id,
             morality_tree_id=actual_mg_tree_id,
@@ -158,19 +169,16 @@ class MoralityGymOmniSafeEnv(CMDP):
         
         self._action_space = self._env.action_space
         self._observation_space = self._env.observation_space
-        self.max_episode_steps = getattr(self._env.env, '_max_episode_steps', 200)
+        self.max_episode_steps = getattr(self._env.env, '_max_episode_steps', 1000)
 
-        #self.reward_range = getattr(self._env, 'reward_range', (-float('inf'), float('inf')))
-        #self.metadata = getattr(self._env, 'metadata', {})
-        
-        default_cost_limit = 10.0
-        cost_limit_from_make_exp = selected_curr_kwargs.get('cost_limit')
-        if 'cost_limit' in kwargs:
-            self._cost_limit = float(kwargs['cost_limit'])
-        elif cost_limit_from_make_exp is not None:
-            self._cost_limit = float(cost_limit_from_make_exp)
-        else:
-            self._cost_limit = default_cost_limit
+        #default_cost_limit = 0.0
+        #cost_limit_from_make_exp = selected_curr_kwargs.get('cost_limit')
+        #if 'cost_limit' in kwargs:
+        #    self._cost_limit = float(kwargs['cost_limit'])
+        #elif cost_limit_from_make_exp is not None:
+        #    self._cost_limit = float(cost_limit_from_make_exp)
+        #else:
+        #    self._cost_limit = default_cost_limit
 
     def step(
         self,

@@ -399,6 +399,7 @@ def make(env_id: str, class_name: str | None = None, **kwargs: Any) -> CMDP:
         class_name (str or None): The environment class name.
 
     Keyword Args:
+        seed (int, optional): The random seed for the environment
         render_mode (str, optional): The render mode ranges from 'human' to 'rgb_array' and 'rgb_array_list'.
             Defaults to 'rgb_array'.
         camera_name (str, optional): The camera name.
