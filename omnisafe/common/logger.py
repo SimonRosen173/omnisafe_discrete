@@ -20,6 +20,7 @@ import atexit
 import csv
 import os
 import time
+import re
 from collections import deque
 from typing import Any, TextIO
 
@@ -99,7 +100,12 @@ class Logger:  # pylint: disable=too-many-instance-attributes
             relpath = f'seed-{str(seed).zfill(3)}-{relpath}'
 
         self._hms_time: str = hms_time
-        self._log_dir: str = os.path.join(output_dir, exp_name, relpath)
+        log_dir = os.path.normpath(os.path.join(output_dir, exp_name, relpath))
+
+        reg_exp = r"[\{\}:]"
+        log_dir = re.sub(reg_exp, "_", log_dir)
+
+        self._log_dir: str = log_dir
         self._maste_proc: bool = get_rank() == 0
         self._console: Console = Console()
 
